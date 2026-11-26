@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Puget Sound Survey</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="masthead">
+      <div>
+        <h1>Puget Sound Survey</h1>
+        <p class="meta">A coastal reconnaissance in the spirit of 1792</p>
+      </div>
+      <pre class="boat" aria-hidden="true">      |\
+      | \
+     _|__\__
+  ~~~\_____/~~~</pre>
+    </header>
+
+    <section class="panel" aria-label="Ship status">
+      <div class="conditions" id="conditions"></div>
+      <div class="bars">
+        <div class="bar-row"><span>Food</span><div class="bar"><div id="bar-food"></div></div><strong id="val-food">100</strong></div>
+        <div class="bar-row"><span>Boat</span><div class="bar"><div id="bar-boat"></div></div><strong id="val-boat">100</strong></div>
+        <div class="bar-row"><span>Morale</span><div class="bar"><div id="bar-morale"></div></div><strong id="val-morale">100</strong></div>
+      </div>
+    </section>
+
+    <section class="panel" id="location-panel">
+      <div class="row">
+        <h2 id="loc-name">Loading chart...</h2>
+        <span class="tag" id="loc-hazard"></span>
+      </div>
+      <p class="meta" id="loc-given"></p>
+      <p id="loc-desc"></p>
+      <div class="actions">
+        <button id="btn-survey">Survey Place</button>
+        <button id="btn-rest">Anchor &amp; Rest</button>
+      </div>
+      <form class="name-form" id="name-form">
+        <input id="name-input" type="text" maxlength="48" placeholder="Name a cove, point, or reach here..." autocomplete="off">
+        <button type="submit">Record Name</button>
+      </form>
+    </section>
+
+    <section class="panel">
+      <div class="row"><h3>Nearby Waters</h3><span class="meta" id="chart-progress"></span></div>
+      <ul class="neighbors" id="neighbor-list"></ul>
+    </section>
+
+    <section class="panel gameover hidden" id="gameover-panel">
+      <h2>Voyage Concluded</h2>
+      <p id="gameover-reason"></p>
+      <button id="btn-restart-over">Begin a New Voyage</button>
+    </section>
+
+    <section class="panel">
+      <div class="row">
+        <h3>Voyage Log</h3>
+        <div class="log-tools">
+          <button id="btn-copy">Copy Log</button>
+          <button id="btn-download">Download .txt</button>
+          <button id="btn-reset" class="muted-btn">New Voyage</button>
+        </div>
+      </div>
+      <ol class="log-list" id="log-list"></ol>
+    </section>
+  </main>
+  <script src="game.js"></script>
+</body>
+</html>

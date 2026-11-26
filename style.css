@@ -1,0 +1,81 @@
+/* Minimal nautical journal styling — text-first and mobile-friendly */
+:root {
+  --bg: #f5f1e6;
+  --paper: #fcfaf4;
+  --ink: #1e2a30;
+  --muted: #5b686e;
+  --line: #d4ccb8;
+  --accent: #244b5a;
+  --warn: #8c3b2b;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 Georgia, serif; }
+
+.shell { max-width: 680px; margin: 0 auto; padding: 1rem; display: grid; gap: 0.9rem; }
+.masthead {
+  display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+  border-bottom: 2px solid var(--ink); padding-bottom: 0.6rem;
+}
+
+h1, h2, h3 { margin: 0; font-weight: 600; }
+h1 { font-size: 1.5rem; }
+h2 { font-size: 1.2rem; }
+h3 { font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.meta { margin: 0.2rem 0 0; font-size: 0.9rem; color: var(--muted); }
+.boat { margin: 0; font: 12px/1.15 "Courier New", monospace; color: var(--accent); white-space: pre; }
+
+.panel { background: var(--paper); border: 1px solid var(--line); padding: 0.9rem 1rem; }
+.row { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 0.5rem; }
+
+.conditions {
+  display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem;
+  font: 0.92rem "Courier New", monospace; margin-bottom: 0.7rem;
+}
+
+.bars { display: grid; gap: 0.45rem; }
+.bar-row { display: grid; grid-template-columns: 4.2rem 1fr 2.4rem; align-items: center; gap: 0.6rem; font-size: 0.9rem; }
+.bar { height: 10px; background: #e6dfd0; border: 1px solid var(--line); overflow: hidden; }
+.bar > div { height: 100%; background: var(--accent); transition: width 0.2s ease; }
+.bar > div.low { background: var(--warn); }
+
+.tag { font: 0.78rem "Courier New", monospace; padding: 0.1rem 0.45rem; border: 1px solid var(--line); color: var(--muted); }
+.tag.risky { border-color: var(--warn); color: var(--warn); }
+
+.actions, .log-tools { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.actions { margin-top: 0.75rem; }
+
+button {
+  font: 0.92rem Georgia, serif; padding: 0.45rem 0.8rem;
+  border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer;
+}
+button:hover:not(:disabled) { opacity: 0.9; }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+.muted-btn { background: transparent; color: var(--ink); border-color: var(--line); }
+
+.name-form { display: flex; gap: 0.5rem; margin-top: 0.7rem; }
+.name-form input {
+  flex: 1; min-width: 0; font: 0.92rem Georgia, serif;
+  padding: 0.45rem 0.6rem; border: 1px solid var(--line); background: #fff; color: var(--ink);
+}
+
+.neighbors { list-style: none; padding: 0; margin: 0.65rem 0 0; display: grid; gap: 0.5rem; }
+.neighbors li {
+  display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;
+  padding: 0.55rem 0.65rem; border: 1px solid var(--line); background: #fff;
+}
+.neighbor-info small { display: block; color: var(--muted); font: 0.82rem "Courier New", monospace; }
+.neighbor-info small.warn { color: var(--warn); }
+
+.log-list {
+  margin: 0.7rem 0 0; padding-left: 1.3rem; display: grid; gap: 0.45rem;
+  max-height: 22rem; overflow-y: auto; font-size: 0.95rem;
+}
+
+.gameover { border: 2px solid var(--warn); background: #fdf5f3; }
+.hidden { display: none; }
+
+@media (max-width: 520px) {
+  .masthead { flex-direction: column; align-items: flex-start; }
+  .neighbors li, .name-form { flex-direction: column; align-items: stretch; }
+}
