@@ -9,9 +9,15 @@
 <body>
   <main class="terminal">
     <div id="output" aria-live="polite"></div>
+    <form id="feedback-ui" class="feedback-bar hidden">
+      <input id="feedback-note" type="text" autocomplete="off" placeholder="Optional note (what you tried, bug, idea)...">
+      <button type="submit" id="feedback-submit">Send</button>
+      <button type="button" id="feedback-cancel">Cancel</button>
+    </form>
     <div class="prompt-line">
       <span class="prompt-glyph" aria-hidden="true">&gt;</span>
       <input id="command" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" autofocus aria-label="Command input">
+      <button type="button" id="send-log-btn" title="Send session transcript to Jonathan for debugging">send log</button>
     </div>
   </main>
   <script src="world.js"></script>

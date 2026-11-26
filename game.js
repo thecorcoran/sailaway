@@ -20,10 +20,17 @@
 
   const outEl = document.getElementById("output");
   const inputEl = document.getElementById("command");
+  const sendLogBtn = document.getElementById("send-log-btn");
+  const feedbackUI = document.getElementById("feedback-ui");
+  const feedbackNote = document.getElementById("feedback-note");
+  const feedbackSubmit = document.getElementById("feedback-submit");
+  const feedbackCancel = document.getElementById("feedback-cancel");
+  const FORMSPREE_URL = "https://formspree.io/f/mqadvwvo";
 
   let state = null;
   let cmdHistory = [];
   let histIndex = -1;
+  let transcript = []; // Full raw record of player inputs and game responses
 
   function initWorldObjects() {
     const objs = {};
@@ -57,11 +64,25 @@
 
   function print(text, cls = "") {
     if (!text) return;
+    transcript.push(text);
     const p = document.createElement("p");
     p.className = `line ${cls}`.trim();
     p.textContent = text;
     outEl.appendChild(p);
     outEl.scrollTop = outEl.scrollHeight;
+  }
+
+  // Format a copy/debug-ready session report for Formspree
+  function buildDebugReport(note) {
+    const inv = state.inventory.map((o) => o.name).join(", ") || "none";
+    const header = [
+      `Note: ${note || "(none)"}`,
+      `State: loc=${state.location} | turn=${state.turn} | tide=${currentTide()} | weather=${state.weather} | tied=${state.tied} | anchored=${state.anchored}`,
+      `Inventory: ${inv}`,
+      `Time: ${new Date().toISOString()}`,
+      "--- TRANSCRIPT ---"
+    ].join("\n");
+    return `${header}\n${transcript.join("\n")}`;
   }
 
   // Advance clock, cycle tide every TURNS_PER_TIDE turns, and occasionally shift weather
@@ -357,7 +378,53 @@
     handleCommand(raw);
   });
 
-  document.addEventListener("click", () => { if (!state.ended) inputEl.focus(); });
+  sendLogBtn.addEventListener("click", () => {
+    feedbackUI.classList.toggle("hidden");
+    if (!feedbackUI.classList.contains("hidden")) feedbackNote.focus();
+    else if (!state.ended) inputEl.focus();
+  });
+
+  feedbackCancel.addEventListener("click", () => {
+    feedbackUI.classList.add("hidden");
+    feedbackNote.value = "";
+    if (!state.ended) inputEl.focus();
+  });
+
+  feedbackUI.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    feedbackSubmit.disabled = true;
+    feedbackSubmit.textContent = "Sending...";
+    const data = new FormData();
+    data.append("project", "South Sound (sailaway)");
+    data.append("message", buildDebugReport(feedbackNote.value.trim()));
+
+    try {
+      const res = await fetch(FORMSPREE_URL, {
+        method: "POST",
+        body: data,
+        headers: { Accept: "application/json" }
+      });
+      if (res.ok) {
+        print("Session log sent. Thank you.", "note");
+        feedbackNote.value = "";
+        feedbackUI.classList.add("hidden");
+      } else {
+        print("Could not send log. Try again or email thecorcoran@gmail.com.", "note");
+      }
+    } catch (_) {
+      print("Network error sending log.", "note");
+    } finally {
+      feedbackSubmit.disabled = false;
+      feedbackSubmit.textContent = "Send";
+      if (!state.ended) inputEl.focus();
+    }
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!state.ended && !e.target.closest("#feedback-ui") && !e.target.closest("#send-log-btn")) {
+      inputEl.focus();
+    }
+  });
 
   state = createState();
   print("SOUTH SOUND", "title");

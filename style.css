@@ -70,3 +70,47 @@ body {
   font: inherit;
   outline: none;
 }
+
+#send-log-btn,
+.feedback-bar button {
+  background: transparent;
+  border: 1px solid #3a3f3a;
+  color: #9aa59a;
+  font: 13px/1.2 "Courier New", Courier, monospace;
+  padding: 0.3rem 0.55rem;
+  cursor: pointer;
+}
+
+#send-log-btn:hover,
+.feedback-bar button:hover:not(:disabled) {
+  border-color: #9aa59a;
+  color: #f0f2eb;
+}
+
+#send-log-btn:disabled,
+.feedback-bar button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.feedback-bar {
+  display: flex;
+  gap: 0.45rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid #262926;
+}
+
+.feedback-bar input {
+  flex: 1;
+  min-width: 0;
+  background: #121412;
+  border: 1px solid #3a3f3a;
+  color: #f0f2eb;
+  font: 14px/1.3 "Courier New", Courier, monospace;
+  padding: 0.3rem 0.5rem;
+  outline: none;
+}
+
+.hidden {
+  display: none;
+}
