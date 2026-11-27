@@ -1,14 +1,12 @@
-// South Sound — Zork-style text adventure engine (reads all locations from WORLD in world.js)
+// South Sound — Zork-style text adventure engine (data-driven from WORLD in world.js)
 (() => {
   const SAVE_KEY = "south_sound_zork_v1";
+  const FORMSPREE_URL = "https://formspree.io/f/mqadvwvo";
   const TIDES = ["slack", "flood", "ebb"];
   const WEATHERS = ["calm", "wind", "fog"];
-  const TURNS_PER_TIDE = 3;
-  const FISH_POOL = [
-    { name: "flounder", aliases: ["fish", "flounder"], description: "A flat, speckled starry flounder." },
-    { name: "perch", aliases: ["fish", "perch"], description: "A silver-sided pile perch." },
-    { name: "rockfish", aliases: ["fish", "rockfish"], description: "A small dark-backed rockfish." }
-  ];
+  const TURNS_PER_TIDE = WORLD.turnsPerTide || 3;
+  const TURNS_PER_WEATHER = WORLD.turnsPerWeather || 9;
+  const OVERNIGHT_TURNS = WORLD.overnightTurns || 6;
 
   const DIR_MAP = {
     n: "north", north: "north", s: "south", south: "south",
@@ -16,7 +14,7 @@
     u: "up", up: "up", d: "down", down: "down"
   };
   const FILLERS = new Set(["the", "a", "an", "my", "some", "at"]);
-  const PREPS = new Set(["to", "on", "in", "into", "from", "with"]);
+  const PREPS = new Set(["to", "on", "in", "into", "from", "with", "back"]);
 
   const outEl = document.getElementById("output");
   const inputEl = document.getElementById("command");
@@ -25,12 +23,11 @@
   const feedbackNote = document.getElementById("feedback-note");
   const feedbackSubmit = document.getElementById("feedback-submit");
   const feedbackCancel = document.getElementById("feedback-cancel");
-  const FORMSPREE_URL = "https://formspree.io/f/mqadvwvo";
 
   let state = null;
   let cmdHistory = [];
   let histIndex = -1;
-  let transcript = []; // Full raw record of player inputs and game responses
+  let transcript = [];
 
   function initWorldObjects() {
     const objs = {};
@@ -47,6 +44,7 @@
       turn: 0,
       tideIndex: 0,
       weather: "calm",
+      lastHeading: "none",
       anchored: false,
       tied: Boolean(WORLD.startTied),
       fishCount: 0,
@@ -61,6 +59,7 @@
 
   const currentTide = () => TIDES[state.tideIndex];
   const currentLoc = () => WORLD.locations[state.location];
+  const passableExits = (loc) => Object.entries(loc.exits || {}).filter(([, ex]) => !(typeof ex === "object" && ex.blocked));
 
   function print(text, cls = "") {
     if (!text) return;
@@ -72,7 +71,6 @@
     outEl.scrollTop = outEl.scrollHeight;
   }
 
-  // Format a copy/debug-ready session report for Formspree
   function buildDebugReport(note) {
     const inv = state.inventory.map((o) => o.name).join(", ") || "none";
     const header = [
@@ -85,18 +83,36 @@
     return `${header}\n${transcript.join("\n")}`;
   }
 
-  // Advance clock, cycle tide every TURNS_PER_TIDE turns, and occasionally shift weather
+  // Advance clock ONLY on movement, fish, wait, row/sail. Weather shifts less often than tide.
   function advanceTime(steps = 1) {
+    const oldTurn = state.turn;
     const oldTide = currentTide();
     const oldWeather = state.weather;
+
     state.turn += steps;
     state.tideIndex = Math.floor(state.turn / TURNS_PER_TIDE) % TIDES.length;
 
-    if (state.turn % 5 === 0) {
+    if (Math.floor(state.turn / TURNS_PER_WEATHER) > Math.floor(oldTurn / TURNS_PER_WEATHER)) {
       state.weather = WEATHERS[(WEATHERS.indexOf(state.weather) + 1 + Math.floor(Math.random() * 2)) % WEATHERS.length];
     }
+    checkBaitedPots();
     if (currentTide() !== oldTide) print(`Tide turns: ${currentTide()}.`, "note");
     if (state.weather !== oldWeather) print(`Weather: ${state.weather}.`, "note");
+  }
+
+  // Any baited crab pot left set in a room overnight yields a fresh crab
+  function checkBaitedPots() {
+    Object.values(state.roomObjects).forEach((list) => {
+      list.forEach((obj) => {
+        if (obj.isCrabPot && obj.baited && obj.setTurn !== null && state.turn - obj.setTurn >= OVERNIGHT_TURNS) {
+          obj.baited = false;
+          obj.setTurn = null;
+          obj.contents = obj.contents || [];
+          state.fishCount = (state.fishCount || 0) + 1;
+          obj.contents.push({ ...WORLD.crabTemplate, id: `crab_${state.fishCount}` });
+        }
+      });
+    });
   }
 
   function describeLocation() {
@@ -105,7 +121,7 @@
     print(given ? `${loc.name} ("${given}")` : loc.name, "title");
 
     const parts = [loc.description];
-    if (loc.tideNotes && loc.tideNotes[currentTide()]) parts.push(loc.tideNotes[currentTide()]);
+    if (loc.tideNotes?.[currentTide()]) parts.push(loc.tideNotes[currentTide()]);
     parts.push(WORLD.weatherDescriptions[state.weather]);
     print(parts.join(" "));
 
@@ -114,10 +130,26 @@
 
     const visible = (state.roomObjects[loc.id] || []).filter((o) => o.takeable || o.openable);
     if (visible.length) {
-      print(`Here: ${visible.map((o) => o.name + (o.openable ? (o.open ? " (open)" : " (closed)") : "")).join(", ")}.`);
+      const label = (o) => {
+        let s = o.name;
+        if (o.isCrabPot && o.setTurn !== null) s += o.baited ? " (set, baited)" : " (set)";
+        else if (o.openable) s += o.open ? " (open)" : " (closed)";
+        return s;
+      };
+      print(`Here: ${visible.map(label).join(", ")}.`);
     }
-    const exits = Object.keys(loc.exits || {});
+    const exits = passableExits(loc).map(([dir]) => dir);
     print(`Exits: ${exits.join(", ") || "none"} | Tide: ${currentTide()} | ${state.weather}`, "note");
+  }
+
+  function findScenery(query) {
+    const scenery = currentLoc().scenery || {};
+    const q = query.toLowerCase();
+    if (scenery[q]) return scenery[q];
+    for (const [key, text] of Object.entries(scenery)) {
+      if (key.includes(q) || q.includes(key)) return text;
+    }
+    return null;
   }
 
   function findObject(query, scope = "all") {
@@ -148,43 +180,105 @@
     return null;
   }
 
+  function lookDirection(dir) {
+    const ex = (currentLoc().exits || {})[dir];
+    if (!ex) return print(`Nothing lies ${dir}.`);
+    if (typeof ex === "object" && ex.blocked) return print(ex.blockedText);
+    const targetId = typeof ex === "string" ? ex : ex.to;
+    const dest = WORLD.locations[targetId];
+    const cost = (typeof ex === "object" && ex.timeCost) || 1;
+    const base = (typeof ex === "object" && ex.lookText) || `${dest.name} lies to the ${dir}.`;
+    const tideNote = typeof ex === "object" && ex.requiresTide && currentTide() !== ex.requiresTide
+      ? ` ${ex.blockedText}`
+      : "";
+    return print(`${base}${cost > 1 ? ` (${cost} tide-steps)` : ""}${tideNote}`);
+  }
+
   function move(dir) {
-    const exit = (currentLoc().exits || {})[dir];
-    if (!exit) return print("No water that way.");
+    const ex = (currentLoc().exits || {})[dir];
+    if (!ex) return print(`No passage ${dir}.`);
+    if (typeof ex === "object" && ex.blocked) return print(ex.blockedText);
     if (state.tied) return print("Still tied to the dock.");
     if (state.anchored) return print("Anchor is down.");
 
-    const targetId = typeof exit === "string" ? exit : exit.to;
-    if (typeof exit === "object" && exit.requiresTide && currentTide() !== exit.requiresTide) {
-      return print(exit.blockedText || `Blocked by the ${currentTide()} tide.`);
+    const targetId = typeof ex === "string" ? ex : ex.to;
+    if (typeof ex === "object" && ex.requiresTide && currentTide() !== ex.requiresTide) {
+      return print(ex.blockedText || `Blocked by the ${currentTide()} tide.`);
     }
+
     state.location = targetId;
+    state.lastHeading = dir;
     if (!state.visited.includes(targetId)) {
       state.visited.push(targetId);
       state.log.push(`Reached ${currentLoc().name}.`);
     }
-    advanceTime(1);
+    advanceTime((typeof ex === "object" && ex.timeCost) || 1);
     describeLocation();
   }
 
+  function readTideTable() {
+    const cycle = TIDES.length * TURNS_PER_TIDE;
+    const pos = state.turn % cycle;
+    if (currentTide() === "slack") {
+      return print(`Tide table: Slack water now. Flood in ${TURNS_PER_TIDE - pos} turn(s).`);
+    }
+    return print(`Tide table: Currently ${currentTide()}. Next slack in ${cycle - pos} turn(s).`);
+  }
+
+  function useCompass() {
+    const dirs = passableExits(currentLoc()).map(([d]) => d).join(", ") || "none";
+    return print(`Compass: Needle points north. Last heading: ${state.lastHeading}. Open water: ${dirs}.`);
+  }
+
   function fish() {
-    const hasLine = Boolean(findObject("line", "inv") || findObject("handline", "inv"));
-    if (!hasLine) return print("You have no fishing line.");
+    if (!findObject("line", "inv") && !findObject("handline", "inv")) {
+      return print("You have no fishing line.");
+    }
     advanceTime(1);
     const chance = currentTide() === "slack" ? 0.45 : 0.65;
     if (Math.random() > chance) return print("You drop the line and wait. Nothing bites.");
 
-    const pick = FISH_POOL[Math.floor(Math.random() * FISH_POOL.length)];
+    const pool = WORLD.fishPool;
+    const pick = pool[Math.floor(Math.random() * pool.length)];
     state.fishCount = (state.fishCount || 0) + 1;
     state.inventory.push({
       id: `fish_${state.fishCount}`,
       name: pick.name,
       aliases: pick.aliases,
       description: pick.description,
-      takeable: true
+      takeable: true,
+      isBait: true,
+      releasable: true
     });
     state.log.push(`Caught a ${pick.name} at ${currentLoc().name}.`);
-    return print(`A sharp tug. You haul in a ${pick.name}.`);
+    return print(`A tug on the line. You haul in a ${pick.name}.`);
+  }
+
+  function baitPot(fishQuery) {
+    const potHit = findObject("crab pot");
+    if (!potHit) return print("No crab pot here.");
+    const baitHit = fishQuery ? findObject(fishQuery, "inv") : state.inventory.find((o) => o.isBait) && findObject(state.inventory.find((o) => o.isBait).name, "inv");
+    if (!baitHit) return print("You need a fish to use as bait.");
+    if (!baitHit.obj.isBait) return print(`The ${baitHit.obj.name} won't work as bait.`);
+
+    baitHit.list.splice(baitHit.index, 1);
+    potHit.obj.baited = true;
+    potHit.obj.open = false;
+    return print(`You bait the crab pot with the ${baitHit.obj.name}.`);
+  }
+
+  function setPot() {
+    const hit = findObject("crab pot");
+    if (!hit) return print("No crab pot here.");
+    if (hit.inInventory) {
+      hit.list.splice(hit.index, 1);
+      state.roomObjects[state.location].push(hit.obj);
+    }
+    hit.obj.open = false;
+    hit.obj.setTurn = state.turn;
+    return print(hit.obj.baited
+      ? "You lower the baited crab pot into the water. Leave it overnight."
+      : "You lower the empty crab pot. Bait it with a fish to catch crab.");
   }
 
   function parse(raw) {
@@ -192,7 +286,10 @@
     const words = trimmed.toLowerCase().split(/\s+/).filter(Boolean);
     if (!words.length) return null;
 
-    if (words[0] === "weigh" && words[1] === "anchor") return { verb: "weigh", noun1: "", prep: "", noun2: "", rawRest: "" };
+    // Multi-word verb forms
+    if (["weigh", "pull", "lift", "raise"].includes(words[0]) && words[1] === "anchor") {
+      return { verb: "weigh", noun1: "", prep: "", noun2: "", rawRest: "" };
+    }
     if (words[0] === "drop" && words[1] === "anchor") return { verb: "anchor", noun1: "", prep: "", noun2: "", rawRest: "" };
     if (words[0] === "cast" && words[1] === "off") return { verb: "untie", noun1: "boat", prep: "", noun2: "", rawRest: "" };
     if (words[0] === "pick" && words[1] === "up") words.splice(0, 2, "take");
@@ -203,88 +300,166 @@
     const prepIdx = rest.findIndex((w) => PREPS.has(w));
 
     if (prepIdx !== -1) {
-      return { verb, noun1: rest.slice(0, prepIdx).join(" "), prep: rest[prepIdx], noun2: rest.slice(prepIdx + 1).join(" "), rawRest };
+      return {
+        verb,
+        noun1: rest.slice(0, prepIdx).join(" "),
+        prep: rest[prepIdx],
+        noun2: rest.slice(prepIdx + 1).filter((w) => !PREPS.has(w)).join(" "),
+        rawRest
+      };
     }
     return { verb, noun1: rest.join(" "), prep: "", noun2: "", rawRest };
+  }
+
+  function examineTarget(noun) {
+    if (!noun) return print("Examine what?");
+    if (noun === "boat" || noun === "skiff") {
+      return print(`Small wooden skiff. ${state.tied ? "Tied to dock." : state.anchored ? "At anchor." : "Under sail."}`);
+    }
+    const hit = findObject(noun);
+    if (hit) {
+      let desc = hit.obj.description;
+      if (hit.obj.isCrabPot && hit.obj.baited) desc += " Baited.";
+      if (hit.obj.openable) {
+        desc += hit.obj.open
+          ? (hit.obj.contents?.length ? ` Inside: ${hit.obj.contents.map((c) => c.name).join(", ")}.` : " Open, empty.")
+          : " Closed.";
+      }
+      return print(desc);
+    }
+    const scenery = findScenery(noun);
+    if (scenery) return print(scenery);
+    return print(`You see no "${noun}" here.`);
   }
 
   function handleCommand(raw) {
     const cmd = parse(raw);
     if (!cmd) return;
-    const { verb, noun1, noun2, rawRest } = cmd;
+    const { verb, noun1, prep, noun2, rawRest } = cmd;
 
     if (DIR_MAP[verb]) return move(DIR_MAP[verb]);
 
     switch (verb) {
       case "go": case "sail": case "walk": case "head": case "move": case "row":
-        return DIR_MAP[noun1] ? move(DIR_MAP[noun1]) : print("Which way?");
+        return DIR_MAP[noun1] ? move(DIR_MAP[noun1]) : print("Go which way? Try north, south, east, or west.");
 
       case "look": case "l":
         if (!noun1) return describeLocation();
-      case "examine": case "x": case "inspect": case "check": {
-        if (!noun1) return print("Examine what?");
-        if (noun1 === "boat" || noun1 === "skiff") {
-          return print(`Small wooden skiff. ${state.tied ? "Tied to dock." : state.anchored ? "At anchor." : "Under sail."}`);
-        }
-        const hit = findObject(noun1);
-        if (!hit) return print("Not here.");
-        let desc = hit.obj.description;
-        if (hit.obj.openable) {
-          desc += hit.obj.open
-            ? (hit.obj.contents?.length ? ` Inside: ${hit.obj.contents.map((c) => c.name).join(", ")}.` : " Open, empty.")
-            : " Closed.";
-        }
-        return print(desc);
-      }
+        if (DIR_MAP[noun1]) return lookDirection(DIR_MAP[noun1]);
+        return examineTarget(noun1);
 
-      case "take": case "get": case "grab": case "pull": case "haul": {
+      case "examine": case "x": case "inspect": case "check": case "explore":
+        return noun1 ? examineTarget(noun1) : print(`${verb === "explore" ? "Explore" : "Examine"} what?`);
+
+      case "take": case "get": case "grab": case "pull": case "lift": case "raise": case "haul": {
         if (!noun1) return print("Take what?");
         const hit = findObject(noun1, "room");
-        if (!hit) return print("Not here.");
+        if (!hit) return print(`No "${noun1}" here to take.`);
         if (!hit.obj.takeable) return print(`Can't take the ${hit.obj.name}.`);
         hit.list.splice(hit.index, 1);
+        if (hit.obj.isCrabPot) hit.obj.setTurn = null;
         state.inventory.push(hit.obj);
-        advanceTime(1);
         return print(`Taken: ${hit.obj.name}.`);
       }
 
       case "drop": case "leave": {
         if (!noun1) return print("Drop what?");
         const hit = findObject(noun1, "inv");
-        if (!hit) return print("Not carrying that.");
+        if (!hit) return print(`You aren't carrying "${noun1}".`);
         hit.list.splice(hit.index, 1);
         state.roomObjects[state.location].push(hit.obj);
-        advanceTime(1);
+        if (hit.obj.isCrabPot && hit.obj.baited) {
+          hit.obj.setTurn = state.turn;
+          return print("You lower the baited crab pot into the water. Leave it overnight.");
+        }
         return print(`Dropped: ${hit.obj.name}.`);
       }
+
+      case "toss": case "throw": case "release": {
+        if (!noun1) return print("Release or toss what?");
+        const hit = findObject(noun1, "inv");
+        if (!hit) return print(`You aren't carrying "${noun1}".`);
+        hit.list.splice(hit.index, 1);
+        if (hit.obj.releasable) {
+          return print(`You release the ${hit.obj.name} back into the water.`);
+        }
+        state.roomObjects[state.location].push(hit.obj);
+        return print(`You toss the ${hit.obj.name} aside.`);
+      }
+
+      case "put": {
+        if (!noun1) return print("Put what where?");
+        const itemHit = findObject(noun1, "inv");
+        if (!itemHit) return print(`You aren't carrying "${noun1}".`);
+
+        // "put <fish> in pot" baits the crab pot
+        const targetHit = noun2 ? findObject(noun2) : (prep === "back" ? (state.roomObjects[state.location] || []).find((o) => o.openable && o.open) && { obj: (state.roomObjects[state.location] || []).find((o) => o.openable && o.open) } : null);
+        if (targetHit?.obj.isCrabPot && itemHit.obj.isBait) return baitPot(itemHit.obj.name);
+        if (targetHit?.obj.openable) {
+          if (!targetHit.obj.open) return print(`The ${targetHit.obj.name} is closed.`);
+          itemHit.list.splice(itemHit.index, 1);
+          targetHit.obj.contents = targetHit.obj.contents || [];
+          targetHit.obj.contents.push(itemHit.obj);
+          return print(`Put ${itemHit.obj.name} in ${targetHit.obj.name}.`);
+        }
+        if (prep === "back") {
+          itemHit.list.splice(itemHit.index, 1);
+          state.roomObjects[state.location].push(itemHit.obj);
+          return print(`Put ${itemHit.obj.name} back.`);
+        }
+        return print("Put it in what?");
+      }
+
+      case "bait":
+        return baitPot(noun2 || (noun1 !== "pot" && noun1 !== "crab pot" ? noun1 : ""));
+
+      case "set":
+        if (!noun1 || noun1.includes("pot") || noun1.includes("trap")) return setPot();
+        return print("Set what? Try: set crab pot.");
 
       case "inventory": case "i": case "inv":
         return print(state.inventory.length ? `Carrying: ${state.inventory.map((o) => o.name).join(", ")}.` : "Empty-handed.");
 
       case "open": {
+        if (!noun1) return print("Open what?");
         const hit = findObject(noun1);
-        if (!hit) return print("Not here.");
-        if (!hit.obj.openable) return print("Doesn't open.");
-        if (hit.obj.open) return print("Already open.");
+        if (!hit) return print(`No "${noun1}" here.`);
+        if (!hit.obj.openable) return print(`The ${hit.obj.name} doesn't open.`);
+        if (hit.obj.open) return print(`Already open.`);
         hit.obj.open = true;
-        advanceTime(1);
         const inside = hit.obj.contents?.length ? ` Inside: ${hit.obj.contents.map((c) => c.name).join(", ")}.` : " Empty.";
         return print(`Opened.${inside}`);
       }
 
       case "close": {
+        if (!noun1) return print("Close what?");
         const hit = findObject(noun1);
-        if (!hit) return print("Not here.");
-        if (!hit.obj.openable) return print("Doesn't close.");
+        if (!hit) return print(`No "${noun1}" here.`);
+        if (!hit.obj.openable) return print(`The ${hit.obj.name} doesn't close.`);
         if (!hit.obj.open) return print("Already closed.");
         hit.obj.open = false;
         return print("Closed.");
       }
 
       case "read": {
+        if (!noun1) return print("Read what?");
         const hit = findObject(noun1);
-        if (!hit) return print("Not here.");
-        return print(hit.obj.readable || "Nothing to read.");
+        if (!hit) return print(`No "${noun1}" here.`);
+        if (hit.obj.id === "tide_table") return readTideTable();
+        if (hit.obj.id === "compass") return useCompass();
+        return print(hit.obj.readable || `Nothing written on the ${hit.obj.name}.`);
+      }
+
+      case "use": {
+        if (!noun1) return print("Use what?");
+        const hit = findObject(noun1);
+        if (!hit) return print(`You don't have "${noun1}".`);
+        if (hit.obj.id === "compass") return useCompass();
+        if (hit.obj.id === "tide_table") return readTideTable();
+        if (hit.obj.id === "handline") return fish();
+        if (hit.obj.isBait) return baitPot(hit.obj.name);
+        if (hit.obj.isCrabPot) return setPot();
+        return print(`Not sure how to use the ${hit.obj.name}.`);
       }
 
       case "fish": case "cast":
@@ -295,32 +470,38 @@
         if (state.tied) return print("Already tied.");
         state.tied = true;
         state.anchored = false;
-        advanceTime(1);
         return print("Tied to dock.");
       }
 
       case "untie": case "unmoor":
         if (!state.tied) return print("Not tied.");
         state.tied = false;
-        advanceTime(1);
         return print("Line cast off.");
 
       case "anchor":
         if (state.tied) return print("Tied to dock.");
         if (state.anchored) return print("Already anchored.");
         state.anchored = true;
-        advanceTime(1);
         return print("Anchor down.");
 
       case "weigh": case "unanchor":
         if (!state.anchored) return print("Anchor is already up.");
         state.anchored = false;
-        advanceTime(1);
         return print("Anchor up.");
 
       case "wait": case "z":
+        if (noun1 === "overnight" || noun1 === "night") {
+          if (!state.anchored && !state.tied) return print("Anchor or tie up before waiting overnight.");
+          print("You wait through the night.");
+          return advanceTime(OVERNIGHT_TURNS);
+        }
         print("Time passes.");
         return advanceTime(1);
+
+      case "sleep": case "camp":
+        if (!state.anchored && !state.tied) return print("Anchor or tie up before sleeping.");
+        print("You sleep until morning.");
+        return advanceTime(OVERNIGHT_TURNS);
 
       case "name":
         if (!rawRest) return print("Usage: name <place name>");
@@ -346,7 +527,7 @@
         } catch (_) { return print("Restore failed."); }
 
       case "help": case "?":
-        return print("look (l), examine (x), n/s/e/w, sail <dir>, take/pull/drop, inventory (i), open/close, read, fish, tie/untie, anchor, weigh anchor, wait (z), name <name>, log, save, restore, quit.");
+        return print("look (l), look <dir>, examine/explore <x>, n/s/e/w, sail/row <dir>, take/drop/put/release, open/close, read/use, fish, bait/set pot, tie/untie, anchor, weigh/raise anchor, wait (z) / sleep, name <name>, log, save, restore, quit.");
 
       case "quit": case "q":
         state.ended = true;
@@ -354,7 +535,7 @@
         return print("Journal closed. Refresh to restart.");
 
       default:
-        return print("Nothing happens.");
+        return print(`I don't know "${verb}". Try look, examine, go, take, fish.`);
     }
   }
 
