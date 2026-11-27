@@ -1,4 +1,4 @@
-/* Classic black-screen monospaced terminal layout — no buttons or menus */
+/* Blank-screen monospaced terminal + thin earned instrument HUD */
 * {
   box-sizing: border-box;
 }
@@ -14,11 +14,36 @@ body {
 
 .terminal {
   height: 100%;
-  max-width: 760px;
+  max-width: 780px;
   margin: 0 auto;
-  padding: 1.25rem 1rem 0.9rem;
+  padding: 0.9rem 1rem 0.9rem;
   display: flex;
   flex-direction: column;
+}
+
+/* Earned instrument strip */
+.hud {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.4rem;
+  padding-bottom: 0.55rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid #262926;
+  font-size: 13px;
+  color: #9aa59a;
+}
+
+.hud-item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.compass-svg {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
 }
 
 #output {
@@ -46,6 +71,10 @@ body {
 
 .line.note {
   color: #9aa59a;
+}
+
+.line.warn {
+  color: #d9a76a;
 }
 
 .prompt-line {
@@ -112,5 +141,5 @@ body {
 }
 
 .hidden {
-  display: none;
+  display: none !important;
 }
